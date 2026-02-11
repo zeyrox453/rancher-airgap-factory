@@ -1,34 +1,29 @@
-name: Fabrique d'Images Airgap
+name: Fabrique d'Images Rancher Complet
 on: [workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Récupérer les fichiers du dépôt
+      - name: Récupérer les fichiers
         uses: actions/checkout@v4
 
-      - name: Télécharger les images Cert-Manager
+      - name: Télécharger et Emballer tout Rancher
         run: |
-          # On télécharge les 3 images nécessaires pour débloquer ton installation actuelle
-          docker pull quay.io/jetstack/cert-manager-cainjector:v1.16.5
-          docker pull quay.io/jetstack/cert-manager-controller:v1.16.5
-          docker pull quay.io/jetstack/cert-manager-webhook:v1.16.5
-
-      - name: Emballer les images en .tar
-        run: |
-          # On crée le paquet d'images
-          docker save \
-            quay.io/jetstack/cert-manager-cainjector:v1.16.5 \
-            quay.io/jetstack/cert-manager-controller:v1.16.5 \
-            quay.io/jetstack/cert-manager-webhook:v1.16.5 \
-            -o cert-manager-images.tar
+          # On crée une liste filtrée pour éviter les images inutiles (Windows, etc.)
+          # et ne garder que le nécessaire pour ton Linux afin de gagner du temps.
+          grep -v "windows" rancher-images.txt > images-linux.txt
           
-          # On compresse pour que le téléchargement soit plus rapide
-          gzip cert-manager-images.tar
+          # On utilise Docker pour "pull" les images de la liste (on en prend une partie pour tester la taille)
+          # Note : Si le fichier final est trop gros (>2Go), GitHub coupera le téléchargement.
+          head -n 50 images-linux.txt | xargs -L 1 docker pull
+          
+          # On sauvegarde ce premier lot
+          docker save $(head -n 50 images-linux.txt) -o rancher-images-part1.tar
+          gzip rancher-images-part1.tar
 
       - name: Créer le lien de téléchargement
         uses: actions/upload-artifact@v4
         with:
-          name: paquet-cert-manager
-          path: cert-manager-images.tar.gz
+          name: paquet-rancher-part1
+          path: rancher-images-part1.tar.gz
