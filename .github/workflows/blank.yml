@@ -1,39 +1,22 @@
-name: Fabrique d'Images Rancher
+name: Recup Briques Finales Rancher
 on: [workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Nettoyer et Préparer la liste
+      - name: Telechargement des images cibles
         run: |
-          # On vérifie si le fichier est là
-          if [ ! -f rancher-images.txt ]; then echo "Fichier rancher-images.txt manquant !"; exit 1; fi
+          # On prend les versions exactes que ton Kubernetes demande
+          docker pull rancher/rancher:v2.10.2
+          docker pull rancher/shell:v0.3.0
           
-          # On enlève les images Windows et on prend les 20 premières
-          grep -v "windows" rancher-images.txt | head -n 20 > list-mini.txt
-          echo "Images à télécharger :"
-          cat list-mini.txt
+          # Emballage
+          docker save rancher/rancher:v2.10.2 rancher/shell:v0.3.0 -o rancher-final.tar
+          gzip rancher-final.tar
 
-      - name: Téléchargement des images
-        run: |
-          while read img; do
-            echo "Pulling $img..."
-            docker pull "$img" || echo "Échec pour $img, on continue..."
-          done < list-mini.txt
-
-      - name: Sauvegarde et Compression
-        run: |
-          # On crée le paquet uniquement avec les images réussies
-          IMAGES=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -v "none")
-          docker save $IMAGES -o rancher-mini.tar
-          gzip rancher-mini.tar
-
-      - name: Téléchargement de l'artéfact
+      - name: Export du paquet
         uses: actions/upload-artifact@v4
         with:
-          name: paquet-rancher-essentiel
-          path: rancher-mini.tar.gz
+          name: paquet-final-rancher
+          path: rancher-final.tar.gz
