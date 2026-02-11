@@ -1,0 +1,23 @@
+name: Fabrique d'Images Airgap
+on: [workflow_dispatch] # Permet de lancer manuellement
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer les fichiers
+        uses: actions/checkout@v4
+
+      - name: Rendre le script exécutable
+        run: chmod +x rancher-save-images.sh
+
+      - name: Télécharger et Emballer les images
+        # On commence par cert-manager pour tester car c'est rapide
+        run: |
+          ./rancher-save-images.sh --image-list rancher-images.txt
+          
+      - name: Créer un lien de téléchargement
+        uses: actions/upload-artifact@v4
+        with:
+          name: mon-paquet-rancher
+          path: rancher-images.tar.gz
