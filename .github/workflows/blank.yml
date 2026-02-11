@@ -1,29 +1,39 @@
-name: Fabrique d'Images Rancher Complet
+name: Fabrique d'Images Rancher
 on: [workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Récupérer les fichiers
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Télécharger et Emballer tout Rancher
+      - name: Nettoyer et Préparer la liste
         run: |
-          # On crée une liste filtrée pour éviter les images inutiles (Windows, etc.)
-          # et ne garder que le nécessaire pour ton Linux afin de gagner du temps.
-          grep -v "windows" rancher-images.txt > images-linux.txt
+          # On vérifie si le fichier est là
+          if [ ! -f rancher-images.txt ]; then echo "Fichier rancher-images.txt manquant !"; exit 1; fi
           
-          # On utilise Docker pour "pull" les images de la liste (on en prend une partie pour tester la taille)
-          # Note : Si le fichier final est trop gros (>2Go), GitHub coupera le téléchargement.
-          head -n 50 images-linux.txt | xargs -L 1 docker pull
-          
-          # On sauvegarde ce premier lot
-          docker save $(head -n 50 images-linux.txt) -o rancher-images-part1.tar
-          gzip rancher-images-part1.tar
+          # On enlève les images Windows et on prend les 20 premières
+          grep -v "windows" rancher-images.txt | head -n 20 > list-mini.txt
+          echo "Images à télécharger :"
+          cat list-mini.txt
 
-      - name: Créer le lien de téléchargement
+      - name: Téléchargement des images
+        run: |
+          while read img; do
+            echo "Pulling $img..."
+            docker pull "$img" || echo "Échec pour $img, on continue..."
+          done < list-mini.txt
+
+      - name: Sauvegarde et Compression
+        run: |
+          # On crée le paquet uniquement avec les images réussies
+          IMAGES=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -v "none")
+          docker save $IMAGES -o rancher-mini.tar
+          gzip rancher-mini.tar
+
+      - name: Téléchargement de l'artéfact
         uses: actions/upload-artifact@v4
         with:
-          name: paquet-rancher-part1
-          path: rancher-images-part1.tar.gz
+          name: paquet-rancher-essentiel
+          path: rancher-mini.tar.gz
