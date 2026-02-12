@@ -1,4 +1,4 @@
-name: Rancher Airgap Kit - Full Upgrade
+name: Rancher Airgap Kit - Charts & Images
 
 # Déclenchement manuel
 on: [workflow_dispatch]
@@ -7,34 +7,24 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 1. Création du dossier de travail
+      # 1. Préparation du dossier
       - name: Prepare Workspace
         run: mkdir -p rancher-kit
 
-      # 2. Téléchargement des outils système (Helm + Charts)
-      # C'est ici qu'on récupère ce qu'il te manque pour l'install
-      - name: Download Tools and Charts
+      # 2. Téléchargement des CHARTS (Fichiers d'installation .tgz)
+      # Indispensable pour faire "helm install" sans internet
+      - name: Download Charts
         run: |
           cd rancher-kit
           
-          # A. Le binaire Helm (Indispensable pour RKE2/Rancher)
-          echo "Téléchargement de Helm..."
-          wget https://get.helm.sh/helm-v3.16.2-linux-amd64.tar.gz
-          # On extrait juste le binaire pour qu'il soit prêt
-          tar -zxvf helm-v3.16.2-linux-amd64.tar.gz linux-amd64/helm
-          mv linux-amd64/helm ./helm-binary
-          rm -rf linux-amd64 helm-v3.16.2-linux-amd64.tar.gz
-
-          # B. Le Chart Rancher (Pour l'upgrade vers 2.10.3)
-          echo "Téléchargement Chart Rancher..."
+          # Chart Rancher 2.10.3 (Mise à jour)
           wget https://releases.rancher.com/server-charts/stable/rancher-2.10.3.tgz
 
-          # C. Les Charts Monitoring (Grafana/Prometheus)
-          echo "Téléchargement Charts Monitoring..."
+          # Charts Monitoring (Grafana/Prometheus)
           wget https://charts.rancher.io/assets/rancher-monitoring/rancher-monitoring-104.2.0+up57.0.3.tgz
           wget https://charts.rancher.io/assets/rancher-monitoring-crd/rancher-monitoring-crd-104.2.0+up57.0.3.tgz
 
-      # 3. Récupération des images Docker (Rancher + Monitoring Stack)
+      # 3. Récupération des images Docker
       - name: Pull Docker Images
         run: |
           # --- RANCHER CORE ---
@@ -46,7 +36,7 @@ jobs:
           docker pull rancher/fleet:v0.11.3
           docker pull rancher/system-upgrade-controller:v0.14.2
           
-          # --- MONITORING STACK (Grafana, Prometheus, etc.) ---
+          # --- MONITORING STACK ---
           docker pull registry.k8s.io/prometheus-adapter/prometheus-adapter:v0.12.0
           docker pull rancher/mirrored-prometheus-alertmanager:v0.27.0
           docker pull rancher/mirrored-prometheus-node-exporter:v1.8.1
@@ -58,7 +48,7 @@ jobs:
           docker pull rancher/mirrored-ingress-nginx-kube-webhook-certgen:v1.4.3
           docker pull rancher/pushprox-client:v0.1.0
           
-          # --- STOCKAGE (Souvent requis) ---
+          # --- STOCKAGE / CSI (Dépendances fréquentes) ---
           docker pull registry.k8s.io/sig-storage/csi-provisioner:v5.0.1
           docker pull registry.k8s.io/sig-storage/csi-resizer:v1.11.1
           docker pull registry.k8s.io/sig-storage/csi-snapshotter:v8.0.1
@@ -89,11 +79,11 @@ jobs:
             registry.k8s.io/sig-storage/csi-snapshotter:v8.0.1 \
             -o rancher-kit/images.tar
 
-      # 5. Compression pour réduire la taille du download
+      # 5. Compression
       - name: Compress Archive
         run: gzip rancher-kit/images.tar
 
-      # 6. Création de l'artifact final téléchargeable
+      # 6. Création de l'artifact final
       - name: Export Full Airgap Kit
         uses: actions/upload-artifact@v4
         with:
