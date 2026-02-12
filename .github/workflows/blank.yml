@@ -1,4 +1,4 @@
-name: Rancher Airgap Kit - Charts & Images Fix
+name: Rancher Airgap Kit - Auto Detect
 
 on: [workflow_dispatch]
 
@@ -9,87 +9,76 @@ jobs:
       - name: Prepare Workspace
         run: mkdir -p rancher-kit
 
-      # CORRECTION ICI : Utilisation de HELM pour télécharger les charts
-      # C'est plus fiable que wget car Helm trouve le bon lien tout seul
+      # 1. Téléchargement des CHARTS via Helm
       - name: Download Charts with Helm
         run: |
           cd rancher-kit
           
-          # 1. On ajoute les dépôts officiels Rancher
+          # Ajout des repos
           helm repo add rancher-stable https://releases.rancher.com/server-charts/stable
           helm repo add rancher-charts https://charts.rancher.io
           helm repo update
 
-          # 2. Téléchargement Rancher (Upgrade)
-          echo "Téléchargement Chart Rancher..."
+          # Téléchargement des .tgz
+          echo "Téléchargement Rancher..."
           helm pull rancher-stable/rancher --version 2.10.3
-
-          # 3. Téléchargement Monitoring (On prend la 104.1.0 qui est très stable)
-          # Helm va télécharger le .tgz tout seul
-          echo "Téléchargement Charts Monitoring..."
+          
+          echo "Téléchargement Monitoring..."
           helm pull rancher-charts/rancher-monitoring --version 104.1.0+up57.0.3
           helm pull rancher-charts/rancher-monitoring-crd --version 104.1.0+up57.0.3
 
+      # 2. EXTRACTION AUTOMATIQUE DES IMAGES (La méthode infaillible)
+      # On demande à Helm : "De quelles images as-tu besoin pour ces charts ?"
+      - name: Auto-Generate Image List
+        run: |
+          cd rancher-kit
+          echo "Analyse des charts pour trouver les images..."
+          
+          # Extrait toutes les lignes "image:" des fichiers .tgz
+          # Nettoie les guillemets et les espaces
+          helm template rancher-*.tgz | grep -o 'image: .*' | sed 's/image: //' | sed 's/"//g' | tr -d ' ' | sort | uniq > detected_images.txt
+          helm template rancher-monitoring-*.tgz | grep -o 'image: .*' | sed 's/image: //' | sed 's/"//g' | tr -d ' ' | sort | uniq >> detected_images.txt
+          
+          # On nettoie la liste finale
+          sort detected_images.txt | uniq > final_image_list.txt
+          
+          echo "=== Images détectées ==="
+          cat final_image_list.txt
+
+      # 3. Pull des images détectées
       - name: Pull Docker Images
         run: |
-          # --- RANCHER CORE ---
-          docker pull rancher/rancher:v2.10.3
-          docker pull rancher/rancher-agent:v2.10.3
-          docker pull rancher/rancher-webhook:v0.5.2
-          docker pull rancher/shell:v0.3.0
-          docker pull rancher/fleet-agent:v0.11.3
-          docker pull rancher/fleet:v0.11.3
-          docker pull rancher/system-upgrade-controller:v0.14.2
+          cd rancher-kit
           
-          # --- MONITORING STACK ---
-          # (Images alignées avec le chart 104.1.0)
-          docker pull registry.k8s.io/prometheus-adapter/prometheus-adapter:v0.12.0
-          docker pull rancher/mirrored-prometheus-alertmanager:v0.27.0
-          docker pull rancher/mirrored-prometheus-node-exporter:v1.8.1
-          docker pull rancher/mirrored-kube-state-metrics-kube-state-metrics:v2.13.0
-          docker pull rancher/mirrored-prom-prometheus:v2.54.1
-          docker pull rancher/mirrored-grafana-grafana:11.1.0
-          docker pull rancher/mirrored-prometheus-operator-prometheus-operator:v0.76.2
-          docker pull rancher/mirrored-prometheus-operator-prometheus-config-reloader:v0.76.2
-          docker pull rancher/mirrored-ingress-nginx-kube-webhook-certgen:v1.4.3
-          docker pull rancher/pushprox-client:v0.1.0
-          
-          # --- STOCKAGE ---
-          docker pull registry.k8s.io/sig-storage/csi-provisioner:v5.0.1
-          docker pull registry.k8s.io/sig-storage/csi-resizer:v1.11.1
-          docker pull registry.k8s.io/sig-storage/csi-snapshotter:v8.0.1
-          
+          # On lit le fichier généré ligne par ligne
+          while IFS= read -r image; do
+            if [ ! -z "$image" ]; then
+              echo "Pulling $image..."
+              # On ajoute "|| true" pour ne PAS arrêter le script si UNE image foire (ex: image Windows optionnelle)
+              docker pull "$image" || echo "WARNING: Impossible de télécharger $image, on continue..."
+            fi
+          done < final_image_list.txt
+
+      # 4. Sauvegarde
       - name: Save Images to Tar
         run: |
-          docker save \
-            rancher/rancher:v2.10.3 \
-            rancher/rancher-agent:v2.10.3 \
-            rancher/rancher-webhook:v0.5.2 \
-            rancher/shell:v0.3.0 \
-            rancher/fleet-agent:v0.11.3 \
-            rancher/fleet:v0.11.3 \
-            rancher/system-upgrade-controller:v0.14.2 \
-            registry.k8s.io/prometheus-adapter/prometheus-adapter:v0.12.0 \
-            rancher/mirrored-prometheus-alertmanager:v0.27.0 \
-            rancher/mirrored-prometheus-node-exporter:v1.8.1 \
-            rancher/mirrored-kube-state-metrics-kube-state-metrics:v2.13.0 \
-            rancher/mirrored-prom-prometheus:v2.54.1 \
-            rancher/mirrored-grafana-grafana:11.1.0 \
-            rancher/mirrored-prometheus-operator-prometheus-operator:v0.76.2 \
-            rancher/mirrored-prometheus-operator-prometheus-config-reloader:v0.76.2 \
-            rancher/mirrored-ingress-nginx-kube-webhook-certgen:v1.4.3 \
-            rancher/pushprox-client:v0.1.0 \
-            registry.k8s.io/sig-storage/csi-provisioner:v5.0.1 \
-            registry.k8s.io/sig-storage/csi-resizer:v1.11.1 \
-            registry.k8s.io/sig-storage/csi-snapshotter:v8.0.1 \
-            -o rancher-kit/images.tar
+          cd rancher-kit
+          # On crée l'archive avec toutes les images qu'on a réussi à télécharger
+          # On liste les images présentes en local pour être sûr
+          docker images --format "{{.Repository}}:{{.Tag}}" > local_images.txt
+          
+          # Sauvegarde massive
+          # xargs est utilisé pour passer la longue liste d'images à docker save
+          cat local_images.txt | xargs docker save -o images.tar
 
+      # 5. Compression
       - name: Compress Archive
         run: gzip rancher-kit/images.tar
 
+      # 6. Export
       - name: Export Full Airgap Kit
         uses: actions/upload-artifact@v4
         with:
-          name: rancher-upgrade-kit-2.10
+          name: rancher-upgrade-kit-auto
           path: rancher-kit/
           retention-days: 1
