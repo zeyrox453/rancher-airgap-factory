@@ -1,38 +1,30 @@
-name: Sauvetage Rancher Air-Gap
+name: Recuperation CAPI et Upgrade
 on: [workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. Telechargement des images manquantes
+      - name: 1. Telechargement des images critiques
         run: |
-          # Image du Webhook (Le responsable du 502)
-          docker pull rancher/rancher-webhook:v0.6.3
+          # Image CRITIQUE pour le 502 (CAPI Controller)
+          docker pull rancher/mirrored-cluster-api-controller:v1.8.3
           
-          # Images de Fleet (Le gestionnaire interne)
-          docker pull rancher/fleet:v0.11.3
-          docker pull rancher/fleet-agent:v0.11.3
-          
-          # Image "Pause" (Souvent demandee par Kubernetes en secours)
-          docker pull rancher/mirrored-pause:3.6
+          # Image pour la maintenance (System Upgrade)
+          docker pull rancher/system-upgrade-controller:v0.14.2
 
-      - name: 2. Emballage en TAR.GZ
-        run: |
-          # On met tout dans un seul paquet
+          # Emballage en .tar
           docker save \
-          rancher/rancher-webhook:v0.6.3 \
-          rancher/fleet:v0.11.3 \
-          rancher/fleet-agent:v0.11.3 \
-          rancher/mirrored-pause:3.6 \
-          -o rancher-fix-502.tar
+          rancher/mirrored-cluster-api-controller:v1.8.3 \
+          rancher/system-upgrade-controller:v0.14.2 \
+          -o rancher-capi-fix.tar
           
-          # On compresse pour aller plus vite
-          gzip rancher-fix-502.tar
+          # Compression pour le transfert
+          gzip rancher-capi-fix.tar
 
-      - name: 3. Mise a disposition du fichier
+      - name: 2. Export du fichier
         uses: actions/upload-artifact@v4
         with:
-          name: paquet-sauvetage-502
-          path: rancher-fix-502.tar.gz
+          name: paquet-final-capi
+          path: rancher-capi-fix.tar.gz
           retention-days: 1
