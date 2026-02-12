@@ -1,30 +1,26 @@
-name: Recuperation CAPI et Upgrade
+name: Rancher Fix 502 - Ultra Light
 on: [workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. Telechargement des images critiques
+      - name: Recupere uniquement les manquants
         run: |
-          # Image CRITIQUE pour le 502 (CAPI Controller)
-          docker pull rancher/mirrored-cluster-api-controller:v1.8.3
+          # 1. Les images absentes de ton crictl
+          docker pull rancher/kubectl:v1.29.2
+          docker pull rancher/rancher-agent:v2.10.2
           
-          # Image pour la maintenance (System Upgrade)
-          docker pull rancher/system-upgrade-controller:v0.14.2
-
-          # Emballage en .tar
+          # 2. Sauvegarde (On ne prend QUE celles-là)
           docker save \
-          rancher/mirrored-cluster-api-controller:v1.8.3 \
-          rancher/system-upgrade-controller:v0.14.2 \
-          -o rancher-capi-fix.tar
+            rancher/kubectl:v1.29.2 \
+            rancher/rancher-agent:v2.10.2 \
+            -o rancher-missing-images.tar
           
-          # Compression pour le transfert
-          gzip rancher-capi-fix.tar
+          gzip rancher-missing-images.tar
 
-      - name: 2. Export du fichier
+      - name: Export Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: paquet-final-capi
-          path: rancher-capi-fix.tar.gz
-          retention-days: 1
+          name: rancher-light-fix
+          path: rancher-missing-images.tar.gz
