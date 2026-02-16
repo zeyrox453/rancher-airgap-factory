@@ -1,4 +1,4 @@
-name: Rancher-Darkside-Collector-V2
+name: Rancher-Darkside-Collector-V3
 on: [workflow_dispatch]
 
 jobs:
@@ -15,7 +15,6 @@ jobs:
           helm repo add rancher-charts https://charts.rancher.io
           helm repo update
           
-          # On télécharge les versions spécifiques
           helm pull rancher-stable/rancher --version 2.10.2
           helm pull rancher-charts/rancher-monitoring-crd --version 104.1.0+up57.0.3
           helm pull rancher-charts/rancher-monitoring --version 104.1.0+up57.0.3
@@ -23,15 +22,19 @@ jobs:
       - name: Deep Image Extraction
         run: |
           cd darkside-kit
-          # FIX : On ajoute "extraction" comme nom de release pour éviter l'erreur de regex
+          # On force la version kube à 1.31.0 pour bypass l'erreur de compatibilité
           echo "Analyse du chart Monitoring..."
-          helm template extraction charts/rancher-monitoring-104.1.0+up57.0.3.tgz --include-crds > full_template.yaml
+          helm template extraction charts/rancher-monitoring-104.1.0+up57.0.3.tgz \
+            --include-crds \
+            --kube-version 1.31.0 > full_template.yaml
+          
           helm show values charts/rancher-monitoring-104.1.0+up57.0.3.tgz >> full_template.yaml
           
           echo "Analyse du chart Rancher..."
-          helm template extraction-rancher charts/rancher-2.10.2.tgz >> full_template.yaml
+          helm template extraction-rancher charts/rancher-2.10.2.tgz \
+            --kube-version 1.31.0 >> full_template.yaml
 
-          # Extraction des images (format propre)
+          # Extraction propre
           grep -E "image:|repository:" full_template.yaml | grep -v "null" | \
           awk '{print $2}' | tr -d '"' | tr -d "'" | sed 's/^[ \t]*//' | \
           grep "/" | sort | uniq > image_list.txt
@@ -42,15 +45,12 @@ jobs:
       - name: Pull and Save Images
         run: |
           cd darkside-kit
-          # On pull chaque image trouvée
           while IFS= read -r img; do
             [[ "$img" != *:* ]] && img="$img:latest"
             echo "Pulling: $img"
-            docker pull "$img" || echo "Skip $img (non trouvé)"
+            docker pull "$img" || echo "Skip $img"
           done < image_list.txt
           
-          # Sauvegarde massive dans un seul tar
-          echo "Sauvegarde des images..."
           docker images --format "{{.Repository}}:{{.Tag}}" | grep -v "none" > final_images.txt
           xargs docker save -o images-darkside.tar < final_images.txt
           gzip images-darkside.tar
