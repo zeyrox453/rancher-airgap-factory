@@ -1,4 +1,4 @@
-name: Rancher-Darkside-Collector
+name: Rancher-Darkside-Collector-V2
 on: [workflow_dispatch]
 
 jobs:
@@ -15,7 +15,7 @@ jobs:
           helm repo add rancher-charts https://charts.rancher.io
           helm repo update
           
-          # Versions cibles pour Rancher 2.10
+          # On télécharge les versions spécifiques
           helm pull rancher-stable/rancher --version 2.10.2
           helm pull rancher-charts/rancher-monitoring-crd --version 104.1.0+up57.0.3
           helm pull rancher-charts/rancher-monitoring --version 104.1.0+up57.0.3
@@ -23,34 +23,41 @@ jobs:
       - name: Deep Image Extraction
         run: |
           cd darkside-kit
-          # Analyse profonde des templates ET des fichiers values.yaml
-          helm template charts/rancher-monitoring-*.tgz --include-crds > full_template.yaml
-          helm show values charts/rancher-monitoring-*.tgz >> full_template.yaml
+          # FIX : On ajoute "extraction" comme nom de release pour éviter l'erreur de regex
+          echo "Analyse du chart Monitoring..."
+          helm template extraction charts/rancher-monitoring-104.1.0+up57.0.3.tgz --include-crds > full_template.yaml
+          helm show values charts/rancher-monitoring-104.1.0+up57.0.3.tgz >> full_template.yaml
           
-          # Extraction propre des images (format: repo/image:tag)
-          grep -E "image:|repository:|tag:" full_template.yaml | grep -v "null" | \
-          sed -e 's/image://g' -e 's/repository://g' -e 's/tag://g' -e 's/"//g' -e "s/'//g" -e 's/^[ \t]*//' | \
+          echo "Analyse du chart Rancher..."
+          helm template extraction-rancher charts/rancher-2.10.2.tgz >> full_template.yaml
+
+          # Extraction des images (format propre)
+          grep -E "image:|repository:" full_template.yaml | grep -v "null" | \
+          awk '{print $2}' | tr -d '"' | tr -d "'" | sed 's/^[ \t]*//' | \
           grep "/" | sort | uniq > image_list.txt
           
-          echo "=== Liste des images à télécharger ==="
+          echo "=== Images détectées ==="
           cat image_list.txt
 
       - name: Pull and Save Images
         run: |
           cd darkside-kit
+          # On pull chaque image trouvée
           while IFS= read -r img; do
-            # Gestion des images sans tag explicite
             [[ "$img" != *:* ]] && img="$img:latest"
-            echo "Processing: $img"
-            docker pull "$img" || continue
+            echo "Pulling: $img"
+            docker pull "$img" || echo "Skip $img (non trouvé)"
           done < image_list.txt
           
+          # Sauvegarde massive dans un seul tar
+          echo "Sauvegarde des images..."
           docker images --format "{{.Repository}}:{{.Tag}}" | grep -v "none" > final_images.txt
-          xargs docker save -o images-monitoring.tar < final_images.txt
-          gzip images-monitoring.tar
+          xargs docker save -o images-darkside.tar < final_images.txt
+          gzip images-darkside.tar
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: darkside-rancher-kit
+          name: rancher-monitoring-kit
           path: darkside-kit/
+          retention-days: 1
