@@ -1,4 +1,4 @@
-name: Rancher-Darkside-Collector-V5.1-Fixed
+name: Rancher-Darkside-Collector-V5.2-Robust
 on: [workflow_dispatch]
 
 jobs:
@@ -11,26 +11,26 @@ jobs:
       - name: Fetch Charts & Extensions
         run: |
           cd darkside-kit/charts
-          # On ajoute LE bon dépôt pour Harvester
           helm repo add harvester https://charts.harvesterhci.io
           helm repo add rancher-charts https://charts.rancher.io
           helm repo update
           
-          # Récupération des charts avec les bonnes sources
-          helm pull harvester/harvester --version 1.3.1
-          helm pull harvester/harvester-crd --version 1.3.1
+          # On cherche la version la plus proche de 1.3 et on la télécharge
+          VERSION_H=$(helm search repo harvester/harvester --version ">=1.3.0 <1.4.0" | awk 'NR==2 {print $2}')
+          echo "Version trouvée : $VERSION_H"
+          helm pull harvester/harvester --version "$VERSION_H"
+          helm pull harvester/harvester-crd --version "$VERSION_H"
           
-          # Récupération de l'extension UI
+          # Récupération de l'extension UI (Crucial pour ton erreur "Not installed")
           cd ../extensions
           curl -L https://github.com/harvester/harvester-ui-extension/archive/refs/heads/gh-pages.zip -o harvester-ui.zip
 
-      - name: Image Extraction (Harvester Focus)
+      - name: Image Extraction (Force images UI)
         run: |
           cd darkside-kit
-          # On injecte les images indispensables pour que l'UI Harvester s'affiche
-          echo "docker.io/rancher/harvester:v1.3.1" > image_list.txt
-          echo "docker.io/rancher/harvester-ui-dashboard:v1.3.1" >> image_list.txt
-          # On garde tes images de monitoring car on en aura besoin pour les graphes Harvester
+          # Ces images sont celles qui font tourner l'interface que tu cherches
+          echo "docker.io/rancher/harvester-ui-dashboard:v1.3.1" > image_list.txt
+          echo "docker.io/rancher/harvester:v1.3.1" >> image_list.txt
           echo "docker.io/rancher/mirrored-prometheus-operator-prometheus-config-reloader:v0.72.0" >> image_list.txt
           sort -u image_list.txt -o image_list.txt
 
@@ -40,12 +40,11 @@ jobs:
           while IFS= read -r img; do
             docker pull "$img" || echo "Skip $img"
           done < image_list.txt
-          # On crée le gros pack pour ta Debian de 60 Go
           docker save -o images-darkside.tar $(cat image_list.txt)
           gzip -9 images-darkside.tar
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rancher-harvester-kit-V5-Fixed
+          name: rancher-harvester-kit-V5.2
           path: darkside-kit/
