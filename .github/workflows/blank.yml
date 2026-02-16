@@ -1,84 +1,56 @@
-name: Rancher Airgap Kit - Auto Detect
-
+name: Rancher-Darkside-Collector
 on: [workflow_dispatch]
 
 jobs:
-  build:
+  collect-assets:
     runs-on: ubuntu-latest
     steps:
-      - name: Prepare Workspace
-        run: mkdir -p rancher-kit
+      - name: Create Workspace
+        run: mkdir -p darkside-kit/charts
 
-      # 1. Téléchargement des CHARTS via Helm
-      - name: Download Charts with Helm
+      - name: Fetch Helm Charts
         run: |
-          cd rancher-kit
-          
-          # Ajout des repos
+          cd darkside-kit/charts
           helm repo add rancher-stable https://releases.rancher.com/server-charts/stable
           helm repo add rancher-charts https://charts.rancher.io
           helm repo update
-
-          # Téléchargement des .tgz
-          echo "Téléchargement Rancher..."
-          helm pull rancher-stable/rancher --version 2.10.3
           
-          echo "Téléchargement Monitoring..."
-          helm pull rancher-charts/rancher-monitoring --version 104.1.0+up57.0.3
+          # Versions cibles pour Rancher 2.10
+          helm pull rancher-stable/rancher --version 2.10.2
           helm pull rancher-charts/rancher-monitoring-crd --version 104.1.0+up57.0.3
+          helm pull rancher-charts/rancher-monitoring --version 104.1.0+up57.0.3
 
-      # 2. EXTRACTION AUTOMATIQUE DES IMAGES (La méthode infaillible)
-      # On demande à Helm : "De quelles images as-tu besoin pour ces charts ?"
-      - name: Auto-Generate Image List
+      - name: Deep Image Extraction
         run: |
-          cd rancher-kit
-          echo "Analyse des charts pour trouver les images..."
+          cd darkside-kit
+          # Analyse profonde des templates ET des fichiers values.yaml
+          helm template charts/rancher-monitoring-*.tgz --include-crds > full_template.yaml
+          helm show values charts/rancher-monitoring-*.tgz >> full_template.yaml
           
-          # Extrait toutes les lignes "image:" des fichiers .tgz
-          # Nettoie les guillemets et les espaces
-          helm template rancher-*.tgz | grep -o 'image: .*' | sed 's/image: //' | sed 's/"//g' | tr -d ' ' | sort | uniq > detected_images.txt
-          helm template rancher-monitoring-*.tgz | grep -o 'image: .*' | sed 's/image: //' | sed 's/"//g' | tr -d ' ' | sort | uniq >> detected_images.txt
+          # Extraction propre des images (format: repo/image:tag)
+          grep -E "image:|repository:|tag:" full_template.yaml | grep -v "null" | \
+          sed -e 's/image://g' -e 's/repository://g' -e 's/tag://g' -e 's/"//g' -e "s/'//g" -e 's/^[ \t]*//' | \
+          grep "/" | sort | uniq > image_list.txt
           
-          # On nettoie la liste finale
-          sort detected_images.txt | uniq > final_image_list.txt
-          
-          echo "=== Images détectées ==="
-          cat final_image_list.txt
+          echo "=== Liste des images à télécharger ==="
+          cat image_list.txt
 
-      # 3. Pull des images détectées
-      - name: Pull Docker Images
+      - name: Pull and Save Images
         run: |
-          cd rancher-kit
+          cd darkside-kit
+          while IFS= read -r img; do
+            # Gestion des images sans tag explicite
+            [[ "$img" != *:* ]] && img="$img:latest"
+            echo "Processing: $img"
+            docker pull "$img" || continue
+          done < image_list.txt
           
-          # On lit le fichier généré ligne par ligne
-          while IFS= read -r image; do
-            if [ ! -z "$image" ]; then
-              echo "Pulling $image..."
-              # On ajoute "|| true" pour ne PAS arrêter le script si UNE image foire (ex: image Windows optionnelle)
-              docker pull "$image" || echo "WARNING: Impossible de télécharger $image, on continue..."
-            fi
-          done < final_image_list.txt
+          docker images --format "{{.Repository}}:{{.Tag}}" | grep -v "none" > final_images.txt
+          xargs docker save -o images-monitoring.tar < final_images.txt
+          gzip images-monitoring.tar
 
-      # 4. Sauvegarde
-      - name: Save Images to Tar
-        run: |
-          cd rancher-kit
-          # On crée l'archive avec toutes les images qu'on a réussi à télécharger
-          # On liste les images présentes en local pour être sûr
-          docker images --format "{{.Repository}}:{{.Tag}}" > local_images.txt
-          
-          # Sauvegarde massive
-          # xargs est utilisé pour passer la longue liste d'images à docker save
-          cat local_images.txt | xargs docker save -o images.tar
-
-      # 5. Compression
-      - name: Compress Archive
-        run: gzip rancher-kit/images.tar
-
-      # 6. Export
-      - name: Export Full Airgap Kit
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rancher-upgrade-kit-auto
-          path: rancher-kit/
-          retention-days: 1
+          name: darkside-rancher-kit
+          path: darkside-kit/
