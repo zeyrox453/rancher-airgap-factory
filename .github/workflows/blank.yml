@@ -1,4 +1,4 @@
-name: Rancher-Darkside-Collector-V5.2-Robust
+name: Rancher-Darkside-Collector-V5.3-Ultra-Robust
 on: [workflow_dispatch]
 
 jobs:
@@ -15,11 +15,9 @@ jobs:
           helm repo add rancher-charts https://charts.rancher.io
           helm repo update
           
-          # On cherche la version la plus proche de 1.3 et on la télécharge
-          VERSION_H=$(helm search repo harvester/harvester --version ">=1.3.0 <1.4.0" | awk 'NR==2 {print $2}')
-          echo "Version trouvée : $VERSION_H"
-          helm pull harvester/harvester --version "$VERSION_H"
-          helm pull harvester/harvester-crd --version "$VERSION_H"
+          # On télécharge les versions stables directement (sans variable complexe)
+          helm pull harvester/harvester --version 1.3.1 || helm pull harvester/harvester
+          helm pull harvester/harvester-crd --version 1.3.1 || helm pull harvester/harvester-crd
           
           # Récupération de l'extension UI (Crucial pour ton erreur "Not installed")
           cd ../extensions
@@ -40,11 +38,12 @@ jobs:
           while IFS= read -r img; do
             docker pull "$img" || echo "Skip $img"
           done < image_list.txt
+          # On crée le pack pour ta VM (tu as encore 38 Go sur tes 60 Go)
           docker save -o images-darkside.tar $(cat image_list.txt)
           gzip -9 images-darkside.tar
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rancher-harvester-kit-V5.2
+          name: rancher-harvester-kit-V5.3
           path: darkside-kit/
