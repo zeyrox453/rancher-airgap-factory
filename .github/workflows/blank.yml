@@ -1,4 +1,4 @@
-name: Rancher-Darkside-Collector-V6-UI-Fix
+name: Rancher-Darkside-Collector-V7-ZIP-ONLY
 on: [workflow_dispatch]
 
 jobs:
@@ -8,34 +8,36 @@ jobs:
       - name: Create Workspace
         run: mkdir -p darkside-kit/extensions
 
-      - name: Fetch UI Extension (Le seul truc dont tu as vraiment besoin)
+      - name: Fetch UI Extension (Le fichier vital)
         run: |
           cd darkside-kit/extensions
-          # On télécharge la branche qui contient le "site web" de l'extension
           echo "Téléchargement de l'extension Harvester UI..."
+          # On télécharge l'archive complète du site web de l'extension
           curl -L https://github.com/harvester/harvester-ui-extension/archive/refs/heads/gh-pages.zip -o harvester-ui.zip
 
-      - name: Image Extraction (Pour le catalogue)
+      - name: Image Extraction (Uniquement le nécessaire)
         run: |
           cd darkside-kit
-          # L'image officielle pour gérer les catalogues d'extensions en offline
-          echo "docker.io/rancher/ui-plugin-catalog:latest" > image_list.txt
-          # On ajoute l'image du dashboard Harvester au cas où
-          echo "docker.io/rancher/harvester-ui-dashboard:v1.3.1" >> image_list.txt
-          sort -u image_list.txt -o image_list.txt
+          # On ne met QUE ce qui existe vraiment.
+          # Le reloader (pour sécuriser ton monitoring)
+          echo "docker.io/rancher/mirrored-prometheus-operator-prometheus-config-reloader:v0.72.0" > image_list.txt
+          # Nginx (toujours utile pour servir des fichiers si besoin)
+          echo "docker.io/library/nginx:alpine" >> image_list.txt
 
       - name: Pull and Save Images
         run: |
           cd darkside-kit
+          # On télécharge les images
           while IFS= read -r img; do
             docker pull "$img" || echo "Skip $img"
           done < image_list.txt
-          # Compression maximale
+          
+          # On sauvegarde
           docker save -o images-darkside.tar $(cat image_list.txt)
           gzip -9 images-darkside.tar
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rancher-harvester-kit-V6
+          name: rancher-harvester-kit-V7
           path: darkside-kit/
