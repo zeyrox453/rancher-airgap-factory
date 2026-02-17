@@ -1,4 +1,4 @@
-name: Rancher-Darkside-Collector-V5.3-Final
+name: Rancher-Darkside-Collector-V6-UI-Fix
 on: [workflow_dispatch]
 
 jobs:
@@ -6,38 +6,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Create Workspace
-        run: mkdir -p darkside-kit/charts darkside-kit/extensions
+        run: mkdir -p darkside-kit/extensions
 
-      - name: Fetch Charts & Extensions
+      - name: Fetch UI Extension (Le seul truc dont tu as vraiment besoin)
         run: |
-          cd darkside-kit/charts
-          helm repo add harvester https://charts.harvesterhci.io
-          helm repo add rancher-charts https://charts.rancher.io
-          helm repo update
-          
-          # CORRECTION : On ne force pas la v1.3.1 si elle est introuvable.
-          # On prend la dernière version stable du chart Harvester.
-          echo "Téléchargement du Chart Harvester..."
-          helm pull harvester/harvester --untar
-          helm pull harvester/harvester-crd --untar
-          
-          # On repackage proprement en .tgz pour le transfert
-          tar -czf harvester.tgz harvester/
-          tar -czf harvester-crd.tgz harvester-crd/
-          rm -rf harvester harvester-crd
-
-          # TRES IMPORTANT : L'extension UI pour fixer ton écran blanc
-          cd ../extensions
-          echo "Téléchargement de l'interface..."
+          cd darkside-kit/extensions
+          # On télécharge la branche qui contient le "site web" de l'extension
+          echo "Téléchargement de l'extension Harvester UI..."
           curl -L https://github.com/harvester/harvester-ui-extension/archive/refs/heads/gh-pages.zip -o harvester-ui.zip
 
-      - name: Image Extraction (Pour l'affichage)
+      - name: Image Extraction (Pour le catalogue)
         run: |
           cd darkside-kit
-          # On s'assure d'avoir l'image du dashboard
-          echo "docker.io/rancher/harvester-ui-dashboard:v1.3.1" > image_list.txt
-          # On ajoute une version générique au cas où
-          echo "docker.io/rancher/harvester-ui-dashboard:latest" >> image_list.txt
+          # L'image officielle pour gérer les catalogues d'extensions en offline
+          echo "docker.io/rancher/ui-plugin-catalog:latest" > image_list.txt
+          # On ajoute l'image du dashboard Harvester au cas où
+          echo "docker.io/rancher/harvester-ui-dashboard:v1.3.1" >> image_list.txt
           sort -u image_list.txt -o image_list.txt
 
       - name: Pull and Save Images
@@ -46,11 +30,12 @@ jobs:
           while IFS= read -r img; do
             docker pull "$img" || echo "Skip $img"
           done < image_list.txt
+          # Compression maximale
           docker save -o images-darkside.tar $(cat image_list.txt)
           gzip -9 images-darkside.tar
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rancher-harvester-kit-V5.3
+          name: rancher-harvester-kit-V6
           path: darkside-kit/
